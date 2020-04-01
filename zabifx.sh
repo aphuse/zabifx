@@ -1,5 +1,5 @@
 #! /usr/bin/bash
-  
+#  AIX use /usr/bin/ksh93  
 #
 # 2018-10-10 - by Cesar Inacio Martins - informix as imartins.com
 #  script rewrite 
@@ -29,7 +29,7 @@ export vOptionParam=$3
 # IMPORTANT: INFORMIXSERVER should be set before , for situations where have more than one instance
 #          : in the same server with different INFORMIXDIR instalation.
 #          : This way the YOUR script env.ifx.sh able to set correctly the variables.
-source  /etc/zabbix/env.ifx.sh
+#source  /etc/zabbix/env.ifx.sh
 
 # TECHINCAL ISSUE : The standard configuration of the Zabbix Agent for the systemd service enable the 
 #                 : PrivateTmp parameter as default, where they "chroot" the /tmp access
@@ -94,7 +94,7 @@ vONSTAT_CACHE=2
 # Use a temporary file (just in case resquested all parameters together, run only once each onstat)
 # Theses temporarys are kept for 2 minutes to avoid overloading the "onstat" calls
 vTmpName=tmp.zabifx.${INFORMIXSERVER:-null}
-vTmpDir=$(dirname $0)
+vTmpDir=/tmp
 vTmp=$vTmpDir/$vTmpName
 vTmp1=${vTmp}.1
 
@@ -174,7 +174,7 @@ _param() {
                # }
              value=$( 
                printf '%s' ${vParam1}'|{"data":['
-               onstat -g dis > $vTmp1.og-dis
+               $ONSTAT -g dis > $vTmp1.og-dis
                vIfxServer=""
                while read vLinha 
                do
@@ -197,8 +197,8 @@ _param() {
                    vIfxDir=${vLinha#*:}
                  elif [[ $vLinha =~ ^ONCONFIG ]]         ; then 
                    vIfxOnconfig=${vLinha#*:}
-                   vIfxMsgPath=$(awk '$1 == "MSGPATH" { print $2 ; exit } ' $vIfxOnconfig )
-                   vIfxMsgPath=$(echo $vIfxMsgPath | sed -e "s,\$INFORMIXDIR,$vIfxDir,")
+                   vIfxMsgPath=$($AWK '$1 == "MSGPATH" { print $2 ; exit } ' $vIfxOnconfig )
+                   vIfxMsgPath=$(echo $vIfxMsgPath | $SED -e "s,\$INFORMIXDIR,$vIfxDir,")
                    printf '"{#IFXMSGPATH}":"%s"' $vIfxMsgPath
                    printf '}'
                  fi
@@ -242,7 +242,7 @@ _param() {
              echo "${vParam1}|{\"data\":["
              # Execute for each instance
              {
-             for INFORMIXSERVER in $(onstat -g dis | $AWK '/^Server *:/  { print $NF}')
+             for INFORMIXSERVER in $($ONSTAT -g dis | $AWK '/^Server *:/  { print $NF}')
              do 
                # Force update the status of each instance.
                _onstat_status
@@ -265,7 +265,7 @@ _param() {
                    }
                    '
              done
-             } | awk 'NR>1 { printf "," } {print}' ## add comma between lines
+             } | $AWK 'NR>1 { printf "," } {print}' ## add comma between lines
              echo "]}"
  
              ;;
@@ -277,7 +277,7 @@ _param() {
     # Return # max of users sessions connected since the database started (or last onstat -z)
     topsessioncount) printf "${vParam1}|" ; 
                _onstat "-g ntu" | \
-                 $AWK '/#netscb/ { vNext=1 ; next } vNext == 1 { match($1,"/.*"); x=substr($1,RSTART+1, RLENGTH); print x; exit} '
+                 $AWK '/#netscb/ { vNext=1 ; x=index($0,"#netscb")+7; next } vNext == 1 { str=substr($0,0,x);match(str,"/.*"); x=substr(str,RSTART+1, RLENGTH); print x; exit} '
                ;;
     # Return # system threads 
     systemthreads) printf "${vParam1}|" ; 
@@ -331,7 +331,7 @@ _param() {
     # Return Physical Log size in bytes
     physize) printf "${vParam1}|" ; 
                # Identifica qual chunk esta o physical log
-               phybegin=$(_onstat "-l"  | $AWK -v FS='\n' -v RS='' '/Physical Logging/ {print}' | $AWK '$1=="phybegin" { getline ; print $1 ; exit}'  | cut -f1 -d:)
+               phybegin=$(_onstat "-l"  | $AWK -v FS='\n' -v RS='' '/Physical Logging/ {print}' | $AWK '$1=="phybegin" { getline ; print $1 ; exit}'  | $CUT -f1 -d:)
                # Pega o pagesize do chunk
                pagesize=$(_onstat "-d" | $AWK -v FS='\n' -v RS='' '/^Dbspaces/' | $AWK -v vDB=$phybegin '$4 == vDB { print $6 ; exit}')
                # Pega o physize em paginas
@@ -343,7 +343,7 @@ _param() {
     # Return Physical Log used in bytes
     phyused) printf "${vParam1}|" ; 
                # Identifica qual chunk esta o physical log
-               phybegin=$(_onstat "-l"  | $AWK -v FS='\n' -v RS='' '/Physical Logging/ {print}' | $AWK '$1=="phybegin" { getline ; print $1 ; exit}'  | cut -f1 -d:)
+               phybegin=$(_onstat "-l"  | $AWK -v FS='\n' -v RS='' '/Physical Logging/ {print}' | $AWK '$1=="phybegin" { getline ; print $1 ; exit}'  | $CUT -f1 -d:)
                # Pega o pagesize do chunk
                pagesize=$(_onstat "-d" | $AWK -v FS='\n' -v RS='' '/^Dbspaces/' | $AWK -v vDB=$phybegin '$4 == vDB { print $6 ; exit}')
                # Pega o phyused em paginas
@@ -401,17 +401,16 @@ _param() {
                  $GREP "Version" | $AWK -F"--" '{print $1}' 
                ;;
     # Return # seconds the database is UP. 
-    # Requires the GNU date command , where support the @0 parameter
     uptime) printf "${vParam1}|" ; 
              vUPstr=$(_onstat "-" | $GREP " Up " | $AWK -F"--" '{print $3}' )
-             vUPhour=$(echo "$vUPstr" | $SED -e 's/ *Up *//g'  -e 's/.*days *//g') # return HH:MM:SS
-             vUPhour=$(echo "$vUPhour" | $AWK -F: '{ printf " %s hour + %s minutes ",$1,$2} ')
-             vUPdays=""
-             if echo "$vUPstr" | $GREP -q "days" ; then 
-               vUPdays=" + $(echo "$vUPstr" | $SED -e 's/ *Up *//g'  -e 's/ *days .*//g') days " # return DD
+             vUPsecond=$(echo "$vUPstr" | $SED -e 's/ *Up *//g'  -e 's/.*days *//g') # return HH:MM:SS
+             vUPsecond=$(echo "$vUPsecond" | $AWK -F: '{ printf "%d",$1*60*60+$2*60+$3} ')
+             vUPdays=0
+             if echo "$vUPstr" | $GREP -q "days" ; then
+              vUPdays=$(echo "$vUPstr" | $SED -e 's/ *Up *//g'  -e 's/ *days .*//g') # return DD
              fi
-             vTimeStamp=$($DATE -d "1970-01-01 UTC $vUPdays + $vUPhour " +%s  2>&1 ) 
-             if [ $? -eq 0 ] ; then 
+             vTimeStamp=$(($vUPdays*24*60*60 + $vUPsecond))
+             if [ $? -eq 0 ] ; then
                echo "$vTimeStamp"
              else
                echo "ZBX_NOTSUPPORTED"
@@ -441,8 +440,8 @@ _param() {
              ;;
      # Return total consumption for VP
     vp_*) printf "${vParam1}|" ; 
-             vp=$(echo "${vParam1}" | cut -c4- )
-             value=$(_onstat "-g glo" | awk -v FS='\n' -v RS='' '/^Virtual processor/' | awk -v vp=$vp '$1 == vp { print $3 } ')
+             vp=$(echo "${vParam1}" | $CUT -c4- )
+             value=$(_onstat "-g glo" | $AWK -v FS='\n' -v RS='' '/^Virtual processor/' | $AWK -v vp=$vp '$1 == vp { print $3 } ')
              if [ ! -z "$value" ] ; then 
                echo "$value"
              else
@@ -554,7 +553,7 @@ _param() {
              ;;
     # Return total memory allocated
     memtotaloc) printf "${vParam1}|" ; 
-             value=$( _onstat '-g seg' | awk '/^Total:/ { print $4}')
+             value=$( _onstat '-g seg' | $AWK '/^Total:/ { print $4}')
              if [ ! -z "$value" ] ; then 
                echo "$value"
              else
