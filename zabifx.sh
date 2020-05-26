@@ -99,7 +99,9 @@ vTmp=$vTmpDir/$vTmpName
 vTmp1=${vTmp}.1
 
 # Remove temporary files with than 2 minutes to no reuse them.
-find $vTmpDir -name "$vTmpName*" -mmin +$((vONSTAT_CACHE -1)) -maxdepth 1 -exec rm -f {} \; 2>/dev/null 
+# find $vTmpDir -name "$vTmpName*" -mmin +$((vONSTAT_CACHE -1)) -maxdepth 1 -exec rm -f {} \; 2>/dev/null 
+# aix系统下的find命令不兼容maxdepth参数
+find $vTmpDir ! -path $vTmpDir -prune -type f -name "$vTmpName*" -mmin +$((vONSTAT_CACHE -1)) -exec rm -f {} \; 2>/dev/null
 
 # Check if onstat is accessible
 if [ ! -x $ONSTAT ] ; then 
